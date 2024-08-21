@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel Comparison Tool</title>
+</head>
+<body>
+    <h1>Excel Comparison Tool</h1>
+    <input type="file" id="fileUpload" accept=".xlsx" />
+    <button id="loadBtn">Load Swap Levels</button>
+    <select id="swapLevelDropdown" style="display: none;"></select>
+    <button id="compareBtn" style="display: none;">Compare Sheets</button>
+    <a id="downloadLink" style="display: none;">Download Comparison</a>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
