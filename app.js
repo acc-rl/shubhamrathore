@@ -1,12 +1,11 @@
 let ivySheet, markitSheet;
-const dateColumns = ['Maturity date', 'End Date' , 'Death', 'Trade Date', 'Settle Date', 'Accrue Date', 'Additional Payment 1 Date', 'Fixed Start Date'];
+const dateColumns = ['Maturity date', 'End Date', 'Death', 'Trade Date', 'Settle Date', 'Accrue Date', 'Additional Payment 1 Date', 'Fixed Start Date'];
 
-document.getElementById('loadBtn').addEventListener('click', handleFileLoad);
-document.getElementById('compareBtn').addEventListener('click', handleFileCompare);
+document.getElementById('compareBtn').addEventListener('click', handleFileLoad);
 
 const mapping = [
     { "comparison": "Trade date", "ivy": "Trade Date", "markit": "Trade Date" },
-    { "comparison": "Settle date", "ivy": "Settle Date", "markit": "Additional Payment 1 Date" }, //need to check from Jiju
+    { "comparison": "Settle date", "ivy": "Settle Date", "markit": "Additional Payment 1 Date" },
     { "comparison": "Accrue date", "ivy": "Accrue Date", "markit": "Fixed Start Date" },
     { "comparison": "Maturity date", "ivy": "Death", "markit": "End Date" },
     { "comparison": "Direction - pay/recv fixed", "ivy": "direction", "markit": "Direction" },
@@ -15,7 +14,7 @@ const mapping = [
     { "comparison": "Payment Frequency - leg 2", "ivy": "Swap Frequency Leg 2", "markit": "Float Payment Freq" },
     { "comparison": "Reset frequency – Float leg", "ivy": "Reset Frequency", "markit": "Float Reset Freq" },
     { "comparison": "Index Name", "ivy": "RATE SOURCE2", "markit": "F/Rate Index" },
-    { "comparison": "Swap Level (Fix rate/100)", "ivy": "Swap Level", "markit": "KEY (Don't touch)" },
+    // { "comparison": "Swap Level (Fix rate/100)", "ivy": "Swap Level", "markit": "KEY (Don't touch)" },
     { "comparison": "Settlement Amount", "ivy": "Net Money", "markit": "Additional Payment 1 Amount" },
     { "comparison": "Settlement Direction", "ivy": "Net Money", "markit": "Additional Payment 1 Direction" },
     { "comparison": "Settlement Currency", "ivy": "Settle Ccy", "markit": "Brokerage Currency" },
@@ -25,9 +24,9 @@ const mapping = [
     { "comparison": "Roll Convention", "ivy": "Roll Convention", "markit": "Roll Day" },
     { "comparison": "IRS Type", "ivy": "ir_swap_type", "markit": "Product" },
     { "comparison": "Contra Broker", "ivy": "Contra Broker", "markit": "Broker Code" }
-  ];
+];
 
-  const reviewRequiredByUser = ['Index Name', 'Roll Convention'];
+const reviewRequiredByUser = ['Index Name', 'Roll Convention'];
 
 function handleFileLoad() {
     const fileUpload = document.getElementById('fileUpload').files[0];
@@ -37,35 +36,36 @@ function handleFileLoad() {
     }
 
     const reader = new FileReader();
-    reader.onload = function(e) {
+    reader.onload = function (e) {
         const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
 
-        ivySheet = XLSX.utils.sheet_to_json(workbook.Sheets['Ivy'], { 
-            header: 1, 
+        ivySheet = XLSX.utils.sheet_to_json(workbook.Sheets['Ivy'], {
+            header: 1,
             raw: false,
             dateNF: 'dd/mm/yyyy',
             cellDates: true,
             rawDates: false,
             defval: '',
             parseCells: parseCell
+
         });
-        markitSheet = XLSX.utils.sheet_to_json(workbook.Sheets['Markit'], { 
-            header: 1, 
+        markitSheet = XLSX.utils.sheet_to_json(workbook.Sheets['Markit'], {
+            header: 1,
             raw: false,
             dateNF: 'dd/mm/yyyy',
             cellDates: true,
             rawDates: false,
             defval: '',
             parseCells: parseCell
+
         });
 
         if (!ivySheet || !markitSheet) {
             alert('Both sheets Ivy and Markit must be present');
             return;
         }
-
-        populateSwapLevelDropdown(ivySheet);
+        handleFileCompare()
     };
     reader.readAsArrayBuffer(fileUpload);
 }
@@ -87,44 +87,35 @@ function parseCell(cell, row, col, sheetName) {
     return cell;
 }
 
-function populateSwapLevelDropdown(ivySheet) {
+function getAllSwapLevels(ivySheet) {
     const swapLevelIndex = ivySheet[0].indexOf('Swap Level');
     if (swapLevelIndex === -1) {
         alert('Swap Level column not found in Ivy sheet');
         return;
     }
 
-    const swapLevelDropdown = document.getElementById('swapLevelDropdown');
-    swapLevelDropdown.innerHTML = ''; // Clear existing options
     const swapLevels = new Set();
 
     for (let i = 1; i < ivySheet.length; i++) {
+        if (ivySheet[i][swapLevelIndex]) {
         swapLevels.add(ivySheet[i][swapLevelIndex]);
+        }
     }
-
-    swapLevels.forEach(level => {
-        const option = document.createElement('option');
-        option.value = level;
-        option.text = level;
-        swapLevelDropdown.add(option);
-    });
-
-    swapLevelDropdown.style.display = 'block';
-    document.getElementById('compareBtn').style.display = 'inline';
+    return swapLevels;
 }
 
 function handleFileCompare() {
-    const selectedSwapLevel = document.getElementById('swapLevelDropdown').value;
-    if (!selectedSwapLevel) {
-        alert('Please select a Swap Level');
-        return;
-    }
-
-    const comparisonSheet = compareSheets(ivySheet, markitSheet, Number(selectedSwapLevel));
-
     const newWorkbook = XLSX.utils.book_new();
-    const newSheet = XLSX.utils.aoa_to_sheet(comparisonSheet);
-    XLSX.utils.book_append_sheet(newWorkbook, newSheet, 'Comparison');
+    const allSwapLevels = getAllSwapLevels(ivySheet);
+
+    allSwapLevels.forEach(level => {
+        let comparisonSheet = compareSheets(ivySheet, markitSheet, level);
+        const newSheet = XLSX.utils.aoa_to_sheet(comparisonSheet);
+
+        applyConditionalFormatting(newSheet, comparisonSheet);
+
+        XLSX.utils.book_append_sheet(newWorkbook, newSheet, `Comparison ${level}`);
+    });
 
     const wbout = XLSX.write(newWorkbook, { bookType: 'xlsx', type: 'array' });
     const blob = new Blob([wbout], { type: 'application/octet-stream' });
@@ -140,56 +131,93 @@ function compareSheets(ivySheet, markitSheet, selectedSwapLevel) {
     const comparisonSheet = [['Column Name', 'Ivy Value', 'Markit Value', 'Status']];
     const ivyHeader = ivySheet[0];
     const markitHeader = markitSheet[0];
-
     const swapLevelIndexIvy = ivyHeader.indexOf('Swap Level');
     const swapLevelIndexMarkit = markitHeader.indexOf("KEY (Don't touch)");
 
     for (let i = 1; i < ivySheet.length; i++) {
-        if (Number(ivySheet[i][swapLevelIndexIvy]) === selectedSwapLevel) {
+        if (Number(ivySheet[i][swapLevelIndexIvy]) === Number(selectedSwapLevel)) {
             const markitRow = markitSheet.find(row => Number(row[swapLevelIndexMarkit]) === Number(selectedSwapLevel));
-
             if (!markitRow) continue;
 
             mapping.forEach(mappingItem => {
                 const ivyIndex = ivyHeader.indexOf(mappingItem.ivy);
                 const markitIndex = markitHeader.indexOf(mappingItem.markit);
+                let status = 'Matched';
 
-                let ivyValue, markitValue;
-                if (dateColumns.includes(mappingItem.ivy)) {
-                    ivyValue = new Date(ivySheet[i][ivyIndex]).toLocaleDateString('en-GB');
-                } else if (mappingItem.ivy === 'Quantity') {
-                    ivyValue = Math.abs(ivySheet[i][ivyIndex]);
-                } else if (mappingItem.ivy === 'Net Money') {
-                    ivyValue = ivySheet[i][ivyIndex] > 0 ? 'Rec' : 'Pay';
-                } else {
-                    ivyValue = ivySheet[i][ivyIndex];
+                let ivyValue = ivySheet[i][ivyIndex];
+                let markitValue = markitRow[markitIndex];
+
+                if (ivyIndex === -1 || markitIndex === -1) {
+                    status = `ERROR - Column not found in ${ivyIndex === -1 ? 'Ivy' : 'Markit'}`;
+                    comparisonSheet.push([mappingItem.comparison, '-', '-', status]);
+                    return;
                 }
-                
+
+                if (dateColumns.includes(mappingItem.ivy)) {
+                    ivyValue = new Date(ivyValue).toLocaleDateString('en-GB');
+                    markitValue = markitValue;
+                }
+
+                if (mappingItem.ivy === 'Quantity') {
+                    ivyValue = Math.abs(ivyValue);
+                } else if (mappingItem.ivy === 'Net Money') {
+                    ivyValue = ivyValue > 0 ? 'Rec' : 'Pay';
+                }
+
                 if (['Fixed Payment Freq', 'Float Payment Freq'].includes(mappingItem.markit)) {
-                    thenum = markitRow[markitIndex].match(/\d+/)[0] // "3"
+                    const thenum = markitValue ? markitValue.match(/\d+/)[0] : null; // "3"
                     markitValue = thenum;
                 } else if (mappingItem.markit === 'Notional') {
-                    markitValue = Number(markitRow[markitIndex]);
-                } else {
-                    markitValue = markitRow[markitIndex];
+                    markitValue = Number(markitValue);
                 }
 
-                let status = 'Matched';
                 if (['Daycount Leg 1', 'Daycount Leg 2'].includes(mappingItem.comparison) && (ivyValue.includes(markitValue) || markitValue.includes(ivyValue))) {
-
-                } else if (reviewRequiredByUser.includes(mappingItem.comparison)) {
+                    status = 'Matched';
+                } else if (reviewRequiredByUser.includes(mappingItem.comparison) || (markitValue !== 0 && !markitValue) || (ivyValue !== 0 && !ivyValue)) {
                     status = 'Review required by user';
-                } else if (mappingItem.comparison === 'Swap Level (Fix rate/100)') {
-
                 } else if (ivyValue !== markitValue) {
                     status = 'Unmatched';
                 }
 
                 comparisonSheet.push([mappingItem.comparison, ivyValue, markitValue, status]);
             });
-            break; // Assuming only one row per Swap Level, remove this break if multiple rows per level
         }
     }
 
     return comparisonSheet;
+}
+
+
+function applyConditionalFormatting(sheet, comparisonSheet) {
+    const statusColumnIndex = comparisonSheet[0].indexOf('Status');
+    
+    // Iterate over all rows except the header
+    for (let i = 1; i < comparisonSheet.length; i++) {
+        const cellAddress = XLSX.utils.encode_cell({ c: statusColumnIndex, r: i });
+        const cell = sheet[cellAddress];
+
+        if (cell && cell.v === 'Matched') {
+            // Green color for "Matched"
+            cell.s = {
+                fill: {
+                    patternType: 'solid',
+                    fgColor: { rgb: 'C6EFCE' } // Light green background
+                },
+                font: {
+                    color: { rgb: '006100' } // Dark green text
+                }
+            };
+        } else if (cell && cell.v === 'Unmatched') {
+            // Light red color for "Unmatched"
+            cell.s = {
+                fill: {
+                    patternType: 'solid',
+                    fgColor: { rgb: 'FFC7CE' } // Light red background
+                },
+                font: {
+                    color: { rgb: '9C0006' } // Dark red text
+                }
+            };
+        }
+    }
 }
