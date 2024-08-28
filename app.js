@@ -3,6 +3,20 @@ const dateColumns = ['Maturity date', 'End Date', 'Death', 'Trade Date', 'Settle
 
 document.getElementById('compareBtn').addEventListener('click', handleFileLoad);
 
+const PaymentFrequencyLeg1Mapping = new Map([
+    [1, '12M'],
+    [2, '6M'],
+    [4, '3M'],
+    [12, '1M'],
+    [6, '2M'],
+    [52, '7D']
+]);
+const contraBroker = {
+    BBG: ['1769597', '1769481'],
+    TWEPCCP: ['1769598', '1769480']
+}
+
+
 const mapping = [
     { "comparison": "Trade date", "ivy": "Trade Date", "markit": "Trade Date" },
     { "comparison": "Settle date", "ivy": "Settle Date", "markit": "Additional Payment 1 Date" },
@@ -75,12 +89,10 @@ function parseCell(cell, row, col, sheetName) {
     if (dateColumns.includes(columnName)) {
         if (typeof cell === 'number') {
             // Convert Excel serial date to JS Date object
-            alert(1)
             return new Date((cell - 25569) * 86400 * 1000);
         } else if (typeof cell === 'string') {
             // If it's already a string, try to parse it as a date
             const parsedDate = new Date(cell).toLocaleDateString('en-GB');
-            console.log(parsedDate)
             return isNaN(parsedDate.getTime()) ? cell : parsedDate;
         }
     }
@@ -158,27 +170,70 @@ function compareSheets(ivySheet, markitSheet, selectedSwapLevel) {
                     markitValue = markitValue;
                 }
 
-                if (mappingItem.ivy === 'Quantity') {
-                    ivyValue = Math.abs(ivyValue);
-                } else if (mappingItem.ivy === 'Net Money') {
+                if (mappingItem.ivy === 'Net Money') {
                     ivyValue = ivyValue > 0 ? 'Rec' : 'Pay';
                 }
 
-                if (['Fixed Payment Freq', 'Float Payment Freq'].includes(mappingItem.markit)) {
-                    const thenum = markitValue ? markitValue.match(/\d+/)[0] : null; // "3"
-                    markitValue = thenum;
-                } else if (mappingItem.markit === 'Notional') {
+                if (mappingItem.markit === 'Notional') {
                     markitValue = Number(markitValue);
                 }
 
-                if (['Daycount Leg 1', 'Daycount Leg 2'].includes(mappingItem.comparison) && (ivyValue.includes(markitValue) || markitValue.includes(ivyValue))) {
-                    status = 'Matched';
-                } else if (reviewRequiredByUser.includes(mappingItem.comparison) || (markitValue !== 0 && !markitValue) || (ivyValue !== 0 && !ivyValue)) {
-                    status = 'Review required by user';
-                } else if (ivyValue !== markitValue) {
-                    status = 'Unmatched';
+                switch (mappingItem.comparison) {
+                    case 'Daycount Leg 1':
+                    case 'Daycount Leg 2': {
+                        if (ivyValue.includes(markitValue) || markitValue.includes(ivyValue)) {
+                            status = 'Matched';
+                        }
+                        break;
+                    }
+                    case 'Payment Frequency - leg 1':
+                    case 'Payment Frequency - leg 2': {
+                        console.log(mappingItem)
+                        console.log(ivyValue, markitValue)
+                        console.log(PaymentFrequencyLeg1Mapping.get(Number(ivyValue)), markitValue.toUpperCase())
+                        console.log(typeof PaymentFrequencyLeg1Mapping.get(Number(ivyValue)), typeof markitValue.toUpperCase())
+                        if (PaymentFrequencyLeg1Mapping.get(Number(ivyValue)) !== markitValue.toUpperCase()) {
+                           console.log("went in if", status)
+                            status = 'Unmatched';
+                        }
+                        break;
+                    }
+                    case 'Quantity/notional': {
+                        if (Math.abs(ivyValue) !== Number(markitValue)) {
+                            status = 'Unmatched';
+                        }
+                        break;
+                    }
+                    case 'Direction - pay/recv fixed': {
+                        if (ivyValue === 'Receive' && markitValue === 'Rec') {
+                            status = 'Matched';
+                        }
+                        break;
+                    }
+                    case 'Trade ID': {
+                        status = '';
+                        break;
+                    }
+                    case 'Contra Broker': {
+                        if (!contraBroker[markitValue]?.includes(ivyValue)) {
+                            status = 'Unmatched';
+                        }
+                        break;
+                    }
+                    default: {
+                        if (
+                            reviewRequiredByUser.includes(mappingItem.comparison) ||
+                            (markitValue !== 0 && !markitValue) ||
+                            (ivyValue !== 0 && !ivyValue)
+                        ) {
+                            status = 'Review required by user';
+                        } else if (ivyValue !== markitValue) {
+                            status = 'Unmatched';
+                        }
+                        break;
+                    }
                 }
-
+                
                 comparisonSheet.push([mappingItem.comparison, ivyValue, markitValue, status]);
             });
         }
@@ -190,7 +245,7 @@ function compareSheets(ivySheet, markitSheet, selectedSwapLevel) {
 
 function applyConditionalFormatting(sheet, comparisonSheet) {
     const statusColumnIndex = comparisonSheet[0].indexOf('Status');
-    
+
     // Iterate over all rows except the header
     for (let i = 1; i < comparisonSheet.length; i++) {
         const cellAddress = XLSX.utils.encode_cell({ c: statusColumnIndex, r: i });
